@@ -5,8 +5,9 @@ import java.io.*;
 
 public class SubstitutionWithKeywordSolver {
 
-    private static final int KEYWORD_LENGTH = 5; // Adjust as needed
-    private static final int NUM_ITERATIONS = 1000000; // Number of random keywords to try
+    private static final int KEYWORD_LENGTH = 10; // Maximum keyword length to try
+    private static final int NUM_ITERATIONS = 1000000; // Number of random keywords to try per length
+    private static final int TOP_RESULTS_LIMIT = 100; // Limit for top results to print
     private static final String NGRAM_FILES_DIR = "src/main/resources/"; // Directory containing n-gram frequency files
     private static final String[] NGRAM_FILES = {
             "english_monograms.txt",
@@ -31,11 +32,16 @@ public class SubstitutionWithKeywordSolver {
         System.out.println("Enter the ciphertext:");
         String ciphertext = scanner.nextLine().toUpperCase().replaceAll("[^A-Z]", "");
 
-        // Randomly generate and evaluate mappings
-        List<Result> topResults = randomKeywordSearch(ciphertext, ngramScorer);
+        // Randomly generate and evaluate mappings for keyword lengths from 1 to KEYWORD_LENGTH
+        List<Result> topResults = new ArrayList<>();
+        for (int length = 1; length <= KEYWORD_LENGTH; length++) {
+            System.out.println("\nAttempting keywords of length: " + length);
+            List<Result> resultsForLength = randomKeywordSearch(ciphertext, ngramScorer, length);
+            topResults.addAll(resultsForLength);
+        }
 
         // For each top result, generate all permutations of the keyword
-        List<Result> permutationResults = new ArrayList<>();
+        PriorityQueue<Result> permutationResults = new PriorityQueue<>(TOP_RESULTS_LIMIT, Comparator.comparingDouble(r -> r.score));
         for (Result result : topResults) {
             List<String> permutations = generatePermutations(result.keyword);
             for (String permutedKeyword : permutations) {
@@ -52,17 +58,26 @@ public class SubstitutionWithKeywordSolver {
                 double score = ngramScorer.score(decryption);
 
                 // Store the result
-                permutationResults.add(new Result(score, permutedKeyword, cipherAlphabet, decryption));
+                Result permutedResult = new Result(score, permutedKeyword, cipherAlphabet, decryption);
+
+                // Keep only top results
+                if (permutationResults.size() < TOP_RESULTS_LIMIT) {
+                    permutationResults.add(permutedResult);
+                } else if (score > permutationResults.peek().score) {
+                    permutationResults.poll();
+                    permutationResults.add(permutedResult);
+                }
             }
         }
 
-        // Sort permutation results by score in descending order
-        permutationResults.sort(Comparator.comparingDouble(r -> -r.score));
+        // Convert the priority queue to a list and sort it in descending order
+        List<Result> topPermutationResults = new ArrayList<>(permutationResults);
+        topPermutationResults.sort(Comparator.comparingDouble(r -> -r.score));
 
-        // Output all permutation results
-        System.out.println("\nPermutation Results:");
+        // Output top permutation results
+        System.out.println("\nTop " + TOP_RESULTS_LIMIT + " Permutation Results:");
         int count = 1;
-        for (Result result : permutationResults) {
+        for (Result result : topPermutationResults) {
             System.out.println("\nResult " + count + ": Score = " + result.score);
             System.out.println("Keyword: " + result.keyword);
             System.out.println("Cipher Alphabet: " + result.cipherAlphabet);
@@ -75,14 +90,16 @@ public class SubstitutionWithKeywordSolver {
     }
 
     // Randomly generate keywords and evaluate mappings
-    private static List<Result> randomKeywordSearch(String ciphertext, NGramScorer ngramScorer) {
+    private static List<Result> randomKeywordSearch(String ciphertext, NGramScorer ngramScorer, int keywordLength) {
         List<Result> topResults = new ArrayList<>();
         Random random = new Random();
         Set<String> triedKeywords = new HashSet<>();
 
-        for (int i = 0; i < NUM_ITERATIONS; i++) {
-            // Generate a random keyword
-            String keyword = generateRandomKeyword(random);
+        int iterations = NUM_ITERATIONS / keywordLength; // Adjust iterations per length
+
+        for (int i = 0; i < iterations; i++) {
+            // Generate a random keyword of specified length
+            String keyword = generateRandomKeyword(random, keywordLength);
 
             // Skip if we've already tried this keyword
             if (triedKeywords.contains(keyword)) {
@@ -116,22 +133,22 @@ public class SubstitutionWithKeywordSolver {
 
             // Optionally, log progress
             if ((i + 1) % 10000 == 0) {
-                System.out.println("Iterations completed: " + (i + 1));
+                System.out.println("Iterations completed for length " + keywordLength + ": " + (i + 1));
             }
         }
 
         return topResults;
     }
 
-    // Generate a random keyword of length KEYWORD_LENGTH
-    private static String generateRandomKeyword(Random random) {
+    // Generate a random keyword of specified length
+    private static String generateRandomKeyword(Random random, int length) {
         List<Character> letters = new ArrayList<>();
         for (char ch = 'A'; ch <= 'Z'; ch++) {
             letters.add(ch);
         }
         Collections.shuffle(letters, random);
         StringBuilder keywordBuilder = new StringBuilder();
-        for (int i = 0; i < KEYWORD_LENGTH; i++) {
+        for (int i = 0; i < length; i++) {
             keywordBuilder.append(letters.get(i));
         }
         return keywordBuilder.toString();
