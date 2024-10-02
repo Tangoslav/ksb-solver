@@ -1,11 +1,32 @@
 package org.example;
 
 import java.util.*;
+import java.io.*;
 
 public class AffineCipherSolver {
 
+    // N-gram files configuration
+    private static final String NGRAM_FILES_DIR = "src/main/resources/"; // Directory containing n-gram frequency files
+    private static final String[] NGRAM_FILES = {
+            "english_monograms.txt",
+            "english_bigrams.txt",
+            "english_trigrams.txt",
+            "english_quadgrams.txt",
+            "english_quintgrams.txt"
+    };
+
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
+
+        // Load n-gram frequencies
+        NGramScorer ngramScorer;
+        try {
+            ngramScorer = new NGramScorer(NGRAM_FILES_DIR, NGRAM_FILES);
+        } catch (IOException e) {
+            System.err.println("Error loading n-gram frequencies: " + e.getMessage());
+            scanner.close();
+            return;
+        }
 
         // Step 1: Read the ciphertext
         System.out.println("Enter the ciphertext:");
@@ -15,24 +36,21 @@ public class AffineCipherSolver {
         Map<Character, Integer> freqMap = frequencyAnalysis(ciphertext);
 
         // Step 3: Estimate possible mappings
-        // Common letters in English (you can adjust for Czech if needed)
         char[] commonPlainLetters = {'E', 'T', 'A', 'O', 'I', 'N', 'S', 'H', 'R', 'D'};
 
         // Get the most frequent letters in the ciphertext
         List<Character> commonCipherLetters = getMostFrequentLetters(freqMap);
 
         // Step 4 & 5: Try different pairs of mappings to solve for A and B
-        boolean foundSolution = false;
-        int[] keys = new int[2]; // keys[0] = A, keys[1] = B
+        PriorityQueue<Result> topResults = new PriorityQueue<>(Comparator.comparingDouble(r -> r.score));
 
-        outerLoop:
-        for (int i = 0; i < Math.min(5, commonPlainLetters.length); i++) {
-            for (int j = i + 1; j < Math.min(5, commonPlainLetters.length); j++) {
+        for (int i = 0; i < commonPlainLetters.length; i++) {
+            for (int j = i + 1; j < commonPlainLetters.length; j++) {
                 char p1 = commonPlainLetters[i];
                 char p2 = commonPlainLetters[j];
 
-                for (int k = 0; k < Math.min(5, commonCipherLetters.size()); k++) {
-                    for (int l = k + 1; l < Math.min(5, commonCipherLetters.size()); l++) {
+                for (int k = 0; k < commonCipherLetters.size(); k++) {
+                    for (int l = k + 1; l < commonCipherLetters.size(); l++) {
                         char c1 = commonCipherLetters.get(k);
                         char c2 = commonCipherLetters.get(l);
 
@@ -45,29 +63,71 @@ public class AffineCipherSolver {
                         // Solve for A and B
                         int[] possibleKeys = solveForKeys(p1Val, p2Val, c1Val, c2Val);
                         if (possibleKeys != null) {
-                            keys = possibleKeys;
-                            foundSolution = true;
-                            System.out.println("Possible mapping found:");
-                            System.out.println(p1 + " -> " + c1);
-                            System.out.println(p2 + " -> " + c2);
-                            System.out.println("Keys: A = " + keys[0] + ", B = " + keys[1]);
-                            break outerLoop;
+                            int A = possibleKeys[0];
+                            int B = possibleKeys[1];
+
+                            // Decrypt the ciphertext using the found keys
+                            String plaintext = decryptAffine(ciphertext, A, B);
+
+                            // Score the decrypted text
+                            double score = ngramScorer.score(plaintext);
+
+                            // Store the result
+                            Result result = new Result(A, B, plaintext, p1, c1, p2, c2, score);
+
+                            // Keep only top 5 results
+                            if (topResults.size() < 5) {
+                                topResults.add(result);
+                            } else if (score > topResults.peek().score) {
+                                topResults.poll();
+                                topResults.add(result);
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (foundSolution) {
-            // Step 6: Decrypt the ciphertext using the found keys
-            String plaintext = decryptAffine(ciphertext, keys[0], keys[1]);
-            System.out.println("\nDecrypted Text:");
-            System.out.println(formatOutput(plaintext));
+        if (!topResults.isEmpty()) {
+            // Output top 5 results
+            System.out.println("\nTop 5 Most Probable Decryptions:");
+            List<Result> resultsList = new ArrayList<>(topResults);
+            resultsList.sort((r1, r2) -> Double.compare(r2.score, r1.score)); // Sort in descending order
+
+            int count = 1;
+            for (Result result : resultsList) {
+                System.out.println("\nResult " + count + ":");
+                System.out.println("Score: " + result.score);
+                System.out.println("Mapping: " + result.p1 + "->" + result.c1 + ", " + result.p2 + "->" + result.c2);
+                System.out.println("Keys: A = " + result.A + ", B = " + result.B);
+                System.out.println("Decrypted Text:");
+                System.out.println(formatOutput(result.plaintext));
+                count++;
+            }
         } else {
             System.out.println("No solution found with the estimated mappings.");
         }
 
         scanner.close();
+    }
+
+    // Class to store results
+    private static class Result {
+        int A, B;
+        String plaintext;
+        char p1, c1, p2, c2;
+        double score;
+
+        Result(int A, int B, String plaintext, char p1, char c1, char p2, char c2, double score) {
+            this.A = A;
+            this.B = B;
+            this.plaintext = plaintext;
+            this.p1 = p1;
+            this.c1 = c1;
+            this.p2 = p2;
+            this.c2 = c2;
+            this.score = score;
+        }
     }
 
     // Perform frequency analysis on the ciphertext
@@ -89,10 +149,6 @@ public class AffineCipherSolver {
     // Solve for keys A and B given two plaintext-ciphertext letter pairs
     private static int[] solveForKeys(int p1, int p2, int c1, int c2) {
         int m = 26; // Size of the alphabet
-
-        // Set up the equations:
-        // c1 = (A * p1 + B) mod 26
-        // c2 = (A * p2 + B) mod 26
 
         // Compute differences to eliminate B:
         // (c1 - c2) mod 26 = A * (p1 - p2) mod 26
