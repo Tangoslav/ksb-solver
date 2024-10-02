@@ -75,15 +75,9 @@ Decrypted Text: EXAMPLERE...
 ## Installation & Usage
 
 1. **Clone the repository**.
-2. **Place N-Gram Files**: Ensure that the following n-gram frequency files are available in the `src/main/resources/` directory:
-    - `english_monograms.txt`
-    - `english_bigrams.txt`
-    - `english_trigrams.txt`
-    - `english_quadgrams.txt`
-    - `english_quintgrams.txt`
-3. **Run the classes** in your favorite Java IDE (e.g., IntelliJ or Eclipse).
-4. **Input your ciphertext** when prompted and view the decryption results.
+2. **Run the classes** in your favorite Java IDE (e.g., IntelliJ or Eclipse).
+3. **Input your ciphertext** when prompted and view the decryption results.
 
 ## License
-This project is open-source and free to use under the MIT License.
+This project is open-source and free to use.
 
