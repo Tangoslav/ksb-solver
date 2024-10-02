@@ -3,7 +3,7 @@ package org.example;
 import java.util.*;
 import java.io.*;
 
-public class MonoalphabeticCipherSolver {
+public class SubstitutionWithKeywordSolver {
 
     // Adjustable parameters
     private static final int ATTEMPTS_LIMIT = -1; // Attempts limit (-1 for unlimited)

@@ -41,3 +41,4 @@ build/
 /src/main/resources/english_quadgrams.txt
 /src/main/resources/english_quintgrams.txt
 /src/main/resources/english_trigrams.txt
+/.idea/
