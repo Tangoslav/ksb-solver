@@ -36,9 +36,4 @@ build/
 
 ### Mac OS ###
 .DS_Store
-/src/main/resources/english_bigrams.txt
-/src/main/resources/english_monograms.txt
-/src/main/resources/english_quadgrams.txt
-/src/main/resources/english_quintgrams.txt
-/src/main/resources/english_trigrams.txt
 /.idea/

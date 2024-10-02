@@ -5,9 +5,9 @@ import java.io.*;
 
 public class SubstitutionWithKeywordSolver {
 
-    private static final int KEYWORD_LENGTH = 10; // Maximum keyword length to try
+    private static final int KEYWORD_LENGTH = 6; // Maximum keyword length to try
     private static final int NUM_ITERATIONS = 1000000; // Number of random keywords to try per length
-    private static final int TOP_RESULTS_LIMIT = 100; // Limit for top results to print
+    private static final int TOP_RESULTS_LIMIT = 5; // Limit for top results to print
     private static final String NGRAM_FILES_DIR = "src/main/resources/"; // Directory containing n-gram frequency files
     private static final String[] NGRAM_FILES = {
             "english_monograms.txt",
