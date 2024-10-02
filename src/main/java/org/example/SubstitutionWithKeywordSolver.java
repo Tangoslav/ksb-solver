@@ -5,9 +5,8 @@ import java.io.*;
 
 public class SubstitutionWithKeywordSolver {
 
-    // Adjustable parameters
-    private static final int ATTEMPTS_LIMIT = -1; // Attempts limit (-1 for unlimited)
-    private static final int MAX_ITERATIONS_WITHOUT_IMPROVEMENT = 10000000;
+    private static final int KEYWORD_LENGTH = 5; // Adjust as needed
+    private static final int NUM_ITERATIONS = 1000000; // Number of random keywords to try
     private static final String NGRAM_FILES_DIR = "src/main/resources/"; // Directory containing n-gram frequency files
     private static final String[] NGRAM_FILES = {
             "english_monograms.txt",
@@ -16,14 +15,6 @@ public class SubstitutionWithKeywordSolver {
             "english_quadgrams.txt",
             "english_quintgrams.txt"
     };
-
-    // Letters to be mapped ('A' to 'S')
-    private static final Set<Character> MAPPABLE_LETTERS = new HashSet<>();
-    static {
-        for (char ch = 'A'; ch <= 'S'; ch++) {
-            MAPPABLE_LETTERS.add(ch);
-        }
-    }
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -40,160 +31,135 @@ public class SubstitutionWithKeywordSolver {
         System.out.println("Enter the ciphertext:");
         String ciphertext = scanner.nextLine().toUpperCase().replaceAll("[^A-Z]", "");
 
-        // Initial mapping based on letter frequencies
-        Map<Character, Character> initialMapping = getInitialMapping(ciphertext);
+        // Randomly generate and evaluate mappings
+        List<Result> topResults = randomKeywordSearch(ciphertext, ngramScorer);
 
-        // Use hill-climbing algorithm to optimize the mapping
-        Map<Character, Character> bestMapping = hillClimbing(ciphertext, initialMapping, ngramScorer);
+        // For each top result, generate all permutations of the keyword
+        List<Result> permutationResults = new ArrayList<>();
+        for (Result result : topResults) {
+            List<String> permutations = generatePermutations(result.keyword);
+            for (String permutedKeyword : permutations) {
+                // Build the cipher alphabet with the permuted keyword
+                List<Character> cipherAlphabet = buildCipherAlphabet(permutedKeyword);
 
-        // Decrypt the ciphertext with the best mapping
-        String decryptedText = applyMapping(ciphertext, bestMapping);
+                // Build the mapping from cipher alphabet
+                Map<Character, Character> mapping = buildMappingFromCipherAlphabet(cipherAlphabet);
 
-        System.out.println("\nBest Mapping Found:");
-        for (Map.Entry<Character, Character> entry : bestMapping.entrySet()) {
-            System.out.println("Cipher Letter: " + entry.getKey() + " -> Plain Letter: " + entry.getValue());
+                // Apply the mapping to the ciphertext
+                String decryption = applyMapping(ciphertext, mapping);
+
+                // Compute the n-gram score
+                double score = ngramScorer.score(decryption);
+
+                // Store the result
+                permutationResults.add(new Result(score, permutedKeyword, cipherAlphabet, decryption));
+            }
         }
 
-        System.out.println("\nDecrypted Text:");
-        System.out.println(formatOutput(decryptedText));
+        // Sort permutation results by score in descending order
+        permutationResults.sort(Comparator.comparingDouble(r -> -r.score));
+
+        // Output all permutation results
+        System.out.println("\nPermutation Results:");
+        int count = 1;
+        for (Result result : permutationResults) {
+            System.out.println("\nResult " + count + ": Score = " + result.score);
+            System.out.println("Keyword: " + result.keyword);
+            System.out.println("Cipher Alphabet: " + result.cipherAlphabet);
+            System.out.println("Decrypted Text:");
+            System.out.println(formatOutput(result.decryption));
+            count++;
+        }
 
         scanner.close();
     }
 
-    // Generate initial mapping based on letter frequencies
-    private static Map<Character, Character> getInitialMapping(String ciphertext) {
-        Map<Character, Integer> cipherFreq = new HashMap<>();
-        for (char ch : ciphertext.toCharArray()) {
-            cipherFreq.put(ch, cipherFreq.getOrDefault(ch, 0) + 1);
-        }
+    // Randomly generate keywords and evaluate mappings
+    private static List<Result> randomKeywordSearch(String ciphertext, NGramScorer ngramScorer) {
+        List<Result> topResults = new ArrayList<>();
+        Random random = new Random();
+        Set<String> triedKeywords = new HashSet<>();
 
-        // Sort cipher letters by frequency
-        List<Character> cipherLetters = new ArrayList<>(cipherFreq.keySet());
-        // Only consider mappable letters
-        cipherLetters.removeIf(ch -> !MAPPABLE_LETTERS.contains(ch));
-        cipherLetters.sort((a, b) -> cipherFreq.get(b) - cipherFreq.get(a));
+        for (int i = 0; i < NUM_ITERATIONS; i++) {
+            // Generate a random keyword
+            String keyword = generateRandomKeyword(random);
 
-        // Standard English letter frequencies (only for letters 'A' to 'S')
-        List<Character> englishLetters = Arrays.asList(
-                'E', 'T', 'A', 'O', 'I', 'N', 'S', 'H', 'R', 'D',
-                'L', 'C', 'U', 'M', 'W', 'F', 'G', 'Y', 'P', 'B',
-                'Q', 'J', 'K', 'V', 'X', 'Z'
-        );
-        // Only consider letters 'A' to 'S' in englishLetters
-        List<Character> mappableEnglishLetters = new ArrayList<>();
-        for (char ch : englishLetters) {
-            if (ch >= 'A' && ch <= 'S') {
-                mappableEnglishLetters.add(ch);
+            // Skip if we've already tried this keyword
+            if (triedKeywords.contains(keyword)) {
+                continue;
+            }
+            triedKeywords.add(keyword);
+
+            // Build the cipher alphabet
+            List<Character> cipherAlphabet = buildCipherAlphabet(keyword);
+
+            // Build the mapping from cipher alphabet
+            Map<Character, Character> mapping = buildMappingFromCipherAlphabet(cipherAlphabet);
+
+            // Apply the mapping to the ciphertext
+            String decryption = applyMapping(ciphertext, mapping);
+
+            // Compute the n-gram score
+            double score = ngramScorer.score(decryption);
+
+            // Store the result
+            Result result = new Result(score, keyword, cipherAlphabet, decryption);
+
+            // Keep top results
+            if (topResults.size() < 5) {
+                topResults.add(result);
+                topResults.sort(Comparator.comparingDouble(r -> -r.score));
+            } else if (score > topResults.get(topResults.size() - 1).score) {
+                topResults.set(topResults.size() - 1, result);
+                topResults.sort(Comparator.comparingDouble(r -> -r.score));
+            }
+
+            // Optionally, log progress
+            if ((i + 1) % 10000 == 0) {
+                System.out.println("Iterations completed: " + (i + 1));
             }
         }
 
-        Map<Character, Character> mapping = new HashMap<>();
-        // Initialize mapping for letters 'T' to 'Z' to map to themselves
-        for (char ch = 'T'; ch <= 'Z'; ch++) {
-            mapping.put(ch, ch);
-        }
-        int len = Math.min(cipherLetters.size(), mappableEnglishLetters.size());
-        for (int i = 0; i < len; i++) {
-            mapping.put(cipherLetters.get(i), mappableEnglishLetters.get(i));
-        }
-
-        return mapping;
+        return topResults;
     }
 
-    // Hill-climbing algorithm to optimize the mapping
-    private static Map<Character, Character> hillClimbing(String ciphertext, Map<Character, Character> initialMapping, NGramScorer ngramScorer) {
-        Map<Character, Character> currentMapping = new HashMap<>(initialMapping);
-        String currentDecryption = applyMapping(ciphertext, currentMapping);
-        double currentScore = ngramScorer.score(currentDecryption);
+    // Generate a random keyword of length KEYWORD_LENGTH
+    private static String generateRandomKeyword(Random random) {
+        List<Character> letters = new ArrayList<>();
+        for (char ch = 'A'; ch <= 'Z'; ch++) {
+            letters.add(ch);
+        }
+        Collections.shuffle(letters, random);
+        StringBuilder keywordBuilder = new StringBuilder();
+        for (int i = 0; i < KEYWORD_LENGTH; i++) {
+            keywordBuilder.append(letters.get(i));
+        }
+        return keywordBuilder.toString();
+    }
 
-        int iterationsWithoutImprovement = 0;
-        int totalIterations = 0;
-
-        // Only consider mappable letters for swapping
-        List<Character> letters = new ArrayList<>(currentMapping.keySet());
-        letters.removeIf(ch -> !MAPPABLE_LETTERS.contains(ch));
-
-        Random random = new Random();
-
-        // Keep track of top 5 results
-        PriorityQueue<Result> topResults = new PriorityQueue<>(Comparator.comparingDouble(r -> r.score));
-
-        System.out.println("\nStarting hill-climbing algorithm...");
-        System.out.println("Initial Score: " + currentScore);
-
-        while (iterationsWithoutImprovement < MAX_ITERATIONS_WITHOUT_IMPROVEMENT) {
-            totalIterations++;
-
-            // Generate a neighbor mapping by swapping two letters
-            Map<Character, Character> neighborMapping = new HashMap<>(currentMapping);
-
-            // Randomly select two letters to swap in the plaintext mapping
-            int idx1 = random.nextInt(letters.size());
-            int idx2 = random.nextInt(letters.size());
-            while (idx1 == idx2) {
-                idx2 = random.nextInt(letters.size());
-            }
-
-            char letter1 = letters.get(idx1);
-            char letter2 = letters.get(idx2);
-
-            // Swap the mappings
-            char temp = neighborMapping.get(letter1);
-            neighborMapping.put(letter1, neighborMapping.get(letter2));
-            neighborMapping.put(letter2, temp);
-
-            // Apply the neighbor mapping and score the result
-            String neighborDecryption = applyMapping(ciphertext, neighborMapping);
-            double neighborScore = ngramScorer.score(neighborDecryption);
-
-            // Logging the attempt
-            if (totalIterations % 10000 == 0) {
-                System.out.println("Iteration " + totalIterations + ": Swapped '" + neighborMapping.get(letter1) + "' and '" + neighborMapping.get(letter2) + "' -> Score: " + neighborScore);
-            }
-
-            // Keep track of top results
-            if (topResults.size() < 5) {
-                topResults.add(new Result(neighborScore, neighborMapping, neighborDecryption));
-            } else if (neighborScore > topResults.peek().score) {
-                topResults.poll();
-                topResults.add(new Result(neighborScore, neighborMapping, neighborDecryption));
-            }
-
-            // If the neighbor score is better, adopt it
-            if (neighborScore > currentScore) {
-                currentMapping = neighborMapping;
-                currentScore = neighborScore;
-                iterationsWithoutImprovement = 0;
-
-                System.out.println("Accepted new mapping with improved score: " + currentScore);
-            } else {
-                iterationsWithoutImprovement++;
-            }
-
-            // Check attempts limit
-            if (ATTEMPTS_LIMIT != -1 && totalIterations >= ATTEMPTS_LIMIT) {
-                System.out.println("\nReached attempts limit of " + ATTEMPTS_LIMIT + ".");
-                break;
+    // Build the cipher alphabet from the keyword
+    private static List<Character> buildCipherAlphabet(String keyword) {
+        Set<Character> seen = new LinkedHashSet<>();
+        for (char ch : keyword.toCharArray()) {
+            seen.add(ch);
+        }
+        for (char ch = 'A'; ch <= 'Z'; ch++) {
+            if (!seen.contains(ch)) {
+                seen.add(ch);
             }
         }
+        return new ArrayList<>(seen);
+    }
 
-        // Output top 5 results
-        System.out.println("\nTop 5 Results:");
-        List<Result> topResultsList = new ArrayList<>(topResults);
-        topResultsList.sort((r1, r2) -> Double.compare(r2.score, r1.score)); // Sort in descending order
-
-        for (int i = 0; i < topResultsList.size(); i++) {
-            Result result = topResultsList.get(i);
-            System.out.println("\nResult " + (i + 1) + ": Score = " + result.score);
-            System.out.println("Mapping:");
-            for (Map.Entry<Character, Character> entry : result.mapping.entrySet()) {
-                System.out.print(entry.getKey() + "->" + entry.getValue() + " ");
-            }
-            System.out.println("\nDecrypted Text:");
-            System.out.println(formatOutput(result.decryption));
+    // Build the mapping from cipher alphabet
+    private static Map<Character, Character> buildMappingFromCipherAlphabet(List<Character> cipherAlphabet) {
+        Map<Character, Character> mapping = new HashMap<>();
+        char plainChar = 'A';
+        for (char cipherChar : cipherAlphabet) {
+            mapping.put(cipherChar, plainChar);
+            plainChar++;
         }
-
-        return currentMapping;
+        return mapping;
     }
 
     // Apply the mapping to the ciphertext
@@ -207,7 +173,7 @@ public class SubstitutionWithKeywordSolver {
     }
 
     private static String formatOutput(String text) {
-        // Break text into blocks of 60 characters for readability
+        // Break text into blocks of 5 characters for readability
         StringBuilder sb = new StringBuilder();
         int index = 0;
         while (index < text.length()) {
@@ -218,15 +184,44 @@ public class SubstitutionWithKeywordSolver {
         return sb.toString();
     }
 
+    // Generate all permutations of a keyword
+    private static List<String> generatePermutations(String keyword) {
+        List<String> permutations = new ArrayList<>();
+        permute(keyword.toCharArray(), 0, permutations);
+        return permutations;
+    }
+
+    // Recursive helper method to generate permutations
+    private static void permute(char[] arr, int k, List<String> permutations) {
+        if (k == arr.length) {
+            permutations.add(new String(arr));
+        } else {
+            for (int i = k; i < arr.length; i++) {
+                swap(arr, k, i);
+                permute(arr, k + 1, permutations);
+                swap(arr, k, i); // backtrack
+            }
+        }
+    }
+
+    // Swap two characters in an array
+    private static void swap(char[] arr, int i, int j) {
+        char temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+    }
+
     // Class to store results
     private static class Result {
         double score;
-        Map<Character, Character> mapping;
+        String keyword;
+        List<Character> cipherAlphabet;
         String decryption;
 
-        Result(double score, Map<Character, Character> mapping, String decryption) {
+        Result(double score, String keyword, List<Character> cipherAlphabet, String decryption) {
             this.score = score;
-            this.mapping = new HashMap<>(mapping);
+            this.keyword = keyword;
+            this.cipherAlphabet = new ArrayList<>(cipherAlphabet);
             this.decryption = decryption;
         }
     }
