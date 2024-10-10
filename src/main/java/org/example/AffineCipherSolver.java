@@ -3,6 +3,8 @@ package org.example;
 import java.util.*;
 import java.io.*;
 
+import static org.example.Utils.getInputAndProcess;
+
 public class AffineCipherSolver {
 
     // N-gram files configuration
@@ -16,7 +18,6 @@ public class AffineCipherSolver {
     };
 
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
 
         // Load n-gram frequencies
         NGramScorer ngramScorer;
@@ -24,13 +25,9 @@ public class AffineCipherSolver {
             ngramScorer = new NGramScorer(NGRAM_FILES_DIR, NGRAM_FILES);
         } catch (IOException e) {
             System.err.println("Error loading n-gram frequencies: " + e.getMessage());
-            scanner.close();
             return;
         }
-
-        // Step 1: Read the ciphertext
-        System.out.println("Enter the ciphertext:");
-        String ciphertext = scanner.nextLine().toUpperCase().replaceAll("[^A-Z]", "");
+        String ciphertext = getInputAndProcess();
 
         // Step 2: Perform frequency analysis on the ciphertext
         Map<Character, Integer> freqMap = frequencyAnalysis(ciphertext);
@@ -108,7 +105,6 @@ public class AffineCipherSolver {
             System.out.println("No solution found with the estimated mappings.");
         }
 
-        scanner.close();
     }
 
     // Class to store results

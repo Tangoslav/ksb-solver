@@ -3,12 +3,11 @@ package org.example;
 import java.util.*;
 import java.io.*;
 
+import static org.example.Utils.getInputAndProcess;
+
 public class SubstitutionWithKeywordSolver {
 
-    private static final int KEYWORD_LENGTH = 6; // Maximum keyword length to try
-    private static final int NUM_ITERATIONS = 1000000; // Number of random keywords to try per length
-    private static final int TOP_RESULTS_LIMIT = 5; // Limit for top results to print
-    private static final String NGRAM_FILES_DIR = "src/main/resources/"; // Directory containing n-gram frequency files
+    private static final String NGRAM_FILES_DIR = "src/main/resources/";
     private static final String[] NGRAM_FILES = {
             "english_monograms.txt",
             "english_bigrams.txt",
@@ -17,113 +16,60 @@ public class SubstitutionWithKeywordSolver {
             "english_quintgrams.txt"
     };
 
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
+    private final NGramScorer ngramScorer;
 
-        // Load n-gram frequencies
-        NGramScorer ngramScorer;
-        try {
-            ngramScorer = new NGramScorer(NGRAM_FILES_DIR, NGRAM_FILES);
-        } catch (IOException e) {
-            System.err.println("Error loading n-gram frequencies: " + e.getMessage());
-            return;
-        }
+    public SubstitutionWithKeywordSolver(NGramScorer ngramScorer) {
+        this.ngramScorer = ngramScorer;
+    }
 
-        System.out.println("Enter the ciphertext:");
-        String ciphertext = scanner.nextLine().toUpperCase().replaceAll("[^A-Z]", "");
+    // Public method to execute the substitution solver logic
+    public List<Result> solve(String ciphertext, int keywordLength, int numIterations, int topResultsLimit) {
+        ciphertext = preprocessText(ciphertext);
 
-        // Randomly generate and evaluate mappings for keyword lengths from 1 to KEYWORD_LENGTH
+        // Step 1: Generate random keywords and evaluate mappings
         List<Result> topResults = new ArrayList<>();
-        for (int length = 1; length <= KEYWORD_LENGTH; length++) {
-            System.out.println("\nAttempting keywords of length: " + length);
-            List<Result> resultsForLength = randomKeywordSearch(ciphertext, ngramScorer, length);
+        for (int length = 1; length <= keywordLength; length++) {
+            System.out.println("Processing keywords of length: " + length);
+            List<Result> resultsForLength = randomKeywordSearch(ciphertext, length, numIterations, topResultsLimit);
             topResults.addAll(resultsForLength);
         }
 
-        // For each top result, generate all permutations of the keyword
-        PriorityQueue<Result> permutationResults = new PriorityQueue<>(TOP_RESULTS_LIMIT, Comparator.comparingDouble(r -> r.score));
-        for (Result result : topResults) {
-            List<String> permutations = generatePermutations(result.keyword);
-            for (String permutedKeyword : permutations) {
-                // Build the cipher alphabet with the permuted keyword
-                List<Character> cipherAlphabet = buildCipherAlphabet(permutedKeyword);
+        // Step 2: Evaluate permutations of top results and find the best ones
+        System.out.println("Evaluating permutations of top results...");
 
-                // Build the mapping from cipher alphabet
-                Map<Character, Character> mapping = buildMappingFromCipherAlphabet(cipherAlphabet);
+        return evaluatePermutations(topResults, ciphertext, topResultsLimit);
+    }
 
-                // Apply the mapping to the ciphertext
-                String decryption = applyMapping(ciphertext, mapping);
-
-                // Compute the n-gram score
-                double score = ngramScorer.score(decryption);
-
-                // Store the result
-                Result permutedResult = new Result(score, permutedKeyword, cipherAlphabet, decryption);
-
-                // Keep only top results
-                if (permutationResults.size() < TOP_RESULTS_LIMIT) {
-                    permutationResults.add(permutedResult);
-                } else if (score > permutationResults.peek().score) {
-                    permutationResults.poll();
-                    permutationResults.add(permutedResult);
-                }
-            }
-        }
-
-        // Convert the priority queue to a list and sort it in descending order
-        List<Result> topPermutationResults = new ArrayList<>(permutationResults);
-        topPermutationResults.sort(Comparator.comparingDouble(r -> -r.score));
-
-        // Output top permutation results
-        System.out.println("\nTop " + TOP_RESULTS_LIMIT + " Permutation Results:");
-        int count = 1;
-        for (Result result : topPermutationResults) {
-            System.out.println("\nResult " + count + ": Score = " + result.score);
-            System.out.println("Keyword: " + result.keyword);
-            System.out.println("Cipher Alphabet: " + result.cipherAlphabet);
-            System.out.println("Decrypted Text:");
-            System.out.println(formatOutput(result.decryption));
-            count++;
-        }
-
-        scanner.close();
+    // Preprocess the text by removing non-alphabetic characters and converting to uppercase
+    private String preprocessText(String text) {
+        return text.toUpperCase().replaceAll("[^A-Z]", "");
     }
 
     // Randomly generate keywords and evaluate mappings
-    private static List<Result> randomKeywordSearch(String ciphertext, NGramScorer ngramScorer, int keywordLength) {
+    private List<Result> randomKeywordSearch(String ciphertext, int keywordLength, int numIterations, int topResultsLimit) {
         List<Result> topResults = new ArrayList<>();
         Random random = new Random();
         Set<String> triedKeywords = new HashSet<>();
 
-        int iterations = NUM_ITERATIONS / keywordLength; // Adjust iterations per length
+        int iterations = numIterations / keywordLength;  // Adjust iterations per length
 
         for (int i = 0; i < iterations; i++) {
-            // Generate a random keyword of specified length
             String keyword = generateRandomKeyword(random, keywordLength);
-
-            // Skip if we've already tried this keyword
             if (triedKeywords.contains(keyword)) {
                 continue;
             }
             triedKeywords.add(keyword);
 
-            // Build the cipher alphabet
             List<Character> cipherAlphabet = buildCipherAlphabet(keyword);
-
-            // Build the mapping from cipher alphabet
             Map<Character, Character> mapping = buildMappingFromCipherAlphabet(cipherAlphabet);
-
-            // Apply the mapping to the ciphertext
             String decryption = applyMapping(ciphertext, mapping);
 
-            // Compute the n-gram score
             double score = ngramScorer.score(decryption);
 
-            // Store the result
             Result result = new Result(score, keyword, cipherAlphabet, decryption);
 
-            // Keep top results
-            if (topResults.size() < 5) {
+            // Keep the top results
+            if (topResults.size() < topResultsLimit) {
                 topResults.add(result);
                 topResults.sort(Comparator.comparingDouble(r -> -r.score));
             } else if (score > topResults.get(topResults.size() - 1).score) {
@@ -131,45 +77,82 @@ public class SubstitutionWithKeywordSolver {
                 topResults.sort(Comparator.comparingDouble(r -> -r.score));
             }
 
-            // Optionally, log progress
-            if ((i + 1) % 10000 == 0) {
-                System.out.println("Iterations completed for length " + keywordLength + ": " + (i + 1));
+            // Print progress every 1000 iterations
+            if ((i + 1) % 1000 == 0) {
+                System.out.println("Iteration " + (i + 1) + " / " + iterations + " for keyword length " + keywordLength);
+                System.out.println("Top result so far: " + topResults.get(0).keyword + " | Score: " + topResults.get(0).score);
             }
         }
 
         return topResults;
     }
 
-    // Generate a random keyword of specified length
-    private static String generateRandomKeyword(Random random, int length) {
+    // Evaluate permutations of keywords and select the best results
+    private List<Result> evaluatePermutations(List<Result> topResults, String ciphertext, int topResultsLimit) {
+        PriorityQueue<Result> permutationResults = new PriorityQueue<>(topResultsLimit, Comparator.comparingDouble(r -> r.score));
+
+        for (Result result : topResults) {
+            List<String> permutations = generatePermutations(result.keyword);
+            for (String permutedKeyword : permutations) {
+                List<Character> cipherAlphabet = buildCipherAlphabet(permutedKeyword);
+                Map<Character, Character> mapping = buildMappingFromCipherAlphabet(cipherAlphabet);
+                String decryption = applyMapping(ciphertext, mapping);
+
+                double score = ngramScorer.score(decryption);
+
+                Result permutedResult = new Result(score, permutedKeyword, cipherAlphabet, decryption);
+
+                if (permutationResults.size() < topResultsLimit) {
+                    permutationResults.add(permutedResult);
+                } else {
+                    assert permutationResults.peek() != null;
+                    if (score > permutationResults.peek().score) {
+                        permutationResults.poll();
+                        permutationResults.add(permutedResult);
+                    }
+                }
+            }
+
+            // Print progress after evaluating permutations for each keyword
+            System.out.println("Evaluated permutations for keyword: " + result.keyword);
+            assert permutationResults.peek() != null;
+            System.out.println("Top permutation: " + permutationResults.peek().keyword + " | Score: " + permutationResults.peek().score);
+        }
+
+        List<Result> sortedResults = new ArrayList<>(permutationResults);
+        sortedResults.sort(Comparator.comparingDouble(r -> -r.score));
+
+        return sortedResults;
+    }
+
+    // Generate random keyword of a specified length
+    private String generateRandomKeyword(Random random, int length) {
         List<Character> letters = new ArrayList<>();
         for (char ch = 'A'; ch <= 'Z'; ch++) {
             letters.add(ch);
         }
         Collections.shuffle(letters, random);
-        StringBuilder keywordBuilder = new StringBuilder();
+        StringBuilder keyword = new StringBuilder();
         for (int i = 0; i < length; i++) {
-            keywordBuilder.append(letters.get(i));
+            keyword.append(letters.get(i));
         }
-        return keywordBuilder.toString();
+        return keyword.toString();
     }
 
-    // Build the cipher alphabet from the keyword
-    private static List<Character> buildCipherAlphabet(String keyword) {
+    // Build cipher alphabet from keyword
+    private List<Character> buildCipherAlphabet(String keyword) {
         Set<Character> seen = new LinkedHashSet<>();
         for (char ch : keyword.toCharArray()) {
             seen.add(ch);
         }
         for (char ch = 'A'; ch <= 'Z'; ch++) {
-            if (!seen.contains(ch)) {
-                seen.add(ch);
-            }
+            seen.add(ch);
         }
         return new ArrayList<>(seen);
     }
 
-    // Build the mapping from cipher alphabet
-    private static Map<Character, Character> buildMappingFromCipherAlphabet(List<Character> cipherAlphabet) {
+    // Build character mapping from cipher alphabet
+    private Map<Character, Character> buildMappingFromCipherAlphabet(List<Character> cipherAlphabet) {
         Map<Character, Character> mapping = new HashMap<>();
         char plainChar = 'A';
         for (char cipherChar : cipherAlphabet) {
@@ -179,57 +162,44 @@ public class SubstitutionWithKeywordSolver {
         return mapping;
     }
 
-    // Apply the mapping to the ciphertext
-    private static String applyMapping(String text, Map<Character, Character> mapping) {
-        StringBuilder sb = new StringBuilder();
+    // Apply character mapping to a text
+    private String applyMapping(String text, Map<Character, Character> mapping) {
+        StringBuilder result = new StringBuilder();
         for (char ch : text.toCharArray()) {
-            char mappedChar = mapping.getOrDefault(ch, ch);
-            sb.append(mappedChar);
+            result.append(mapping.getOrDefault(ch, ch));
         }
-        return sb.toString();
-    }
-
-    private static String formatOutput(String text) {
-        // Break text into blocks of 5 characters for readability
-        StringBuilder sb = new StringBuilder();
-        int index = 0;
-        while (index < text.length()) {
-            sb.append(text, index, Math.min(index + 5, text.length()));
-            sb.append(' ');
-            index += 5;
-        }
-        return sb.toString();
+        return result.toString();
     }
 
     // Generate all permutations of a keyword
-    private static List<String> generatePermutations(String keyword) {
+    private List<String> generatePermutations(String keyword) {
         List<String> permutations = new ArrayList<>();
         permute(keyword.toCharArray(), 0, permutations);
         return permutations;
     }
 
-    // Recursive helper method to generate permutations
-    private static void permute(char[] arr, int k, List<String> permutations) {
+    // Helper method for permutation generation
+    private void permute(char[] arr, int k, List<String> permutations) {
         if (k == arr.length) {
             permutations.add(new String(arr));
         } else {
             for (int i = k; i < arr.length; i++) {
                 swap(arr, k, i);
                 permute(arr, k + 1, permutations);
-                swap(arr, k, i); // backtrack
+                swap(arr, k, i);
             }
         }
     }
 
     // Swap two characters in an array
-    private static void swap(char[] arr, int i, int j) {
+    private void swap(char[] arr, int i, int j) {
         char temp = arr[i];
         arr[i] = arr[j];
         arr[j] = temp;
     }
 
-    // Class to store results
-    private static class Result {
+    // Helper class to store results
+    public static class Result {
         double score;
         String keyword;
         List<Character> cipherAlphabet;
@@ -240,6 +210,44 @@ public class SubstitutionWithKeywordSolver {
             this.keyword = keyword;
             this.cipherAlphabet = new ArrayList<>(cipherAlphabet);
             this.decryption = decryption;
+        }
+    }
+
+    // Static method to initialize the n-gram scorer
+    public static NGramScorer loadNGramScorer() throws IOException {
+        return new NGramScorer(NGRAM_FILES_DIR, NGRAM_FILES);
+    }
+
+    public static void main(String[] args) {
+        try {
+            // Load the N-gram scorer
+            NGramScorer ngramScorer = SubstitutionWithKeywordSolver.loadNGramScorer();
+
+            // Create the substitution solver with the loaded N-gram scorer
+            SubstitutionWithKeywordSolver solver = new SubstitutionWithKeywordSolver(ngramScorer);
+
+            // Get the ciphertext from the user
+            String ciphertext = getInputAndProcess();
+
+            int maxKeywordLength = 4;
+            int numIterations = 100000000;
+            int topResultsLimit = 10;
+
+            // Solve for the keyword using the provided inputs
+            List<SubstitutionWithKeywordSolver.Result> results = solver.solve(ciphertext, maxKeywordLength, numIterations, topResultsLimit);
+
+            // Output the top results
+            System.out.println("\nTop results:");
+            for (int i = 0; i < results.size(); i++) {
+                SubstitutionWithKeywordSolver.Result result = results.get(i);
+                System.out.println("Result " + (i + 1) + ":");
+                System.out.println("Keyword: " + result.keyword);
+                System.out.println("Score: " + result.score);
+                System.out.println("Decrypted text: " + result.decryption);
+                System.out.println("--------------------------------");
+            }
+        } catch (IOException e) {
+            System.err.println("Error loading N-gram scorer: " + e.getMessage());
         }
     }
 }
